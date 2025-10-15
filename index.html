@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Task Planner</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for a professional look */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f4f6f9;
+        }
+        .card {
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 5px 15px -5px rgba(0, 0, 0, 0.04);
+            transition: transform 0.3s ease;
+        }
+        .task-item {
+            border-left: 4px solid;
+            transition: all 0.2s ease;
+        }
+        /* Style for history items */
+        .history-item {
+            transition: background-color 0.15s;
+        }
+        .history-item:hover {
+            background-color: #eff6ff; /* Light blue on hover */
+        }
+        /* Style for delete button */
+        .delete-btn {
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            line-height: 1;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <header class="text-center py-6 mb-8 bg-white rounded-xl shadow-lg">
+            <h1 class="text-4xl font-extrabold text-indigo-700">🧠 Smart Task Planner</h1>
+            <p class="text-lg text-gray-500 mt-2">Break down any goal into actionable tasks using AI reasoning.</p>
+        </header>
+        
+        <!-- Main Content Wrapper: Contains Input/Output and History -->
+        <div id="mainContentWrapper">
+
+            <!-- INPUT / NEW PLAN VIEW -->
+            <div id="newPlanView" class="card bg-white p-6 rounded-xl mb-8">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4 flex justify-between items-center">
+                    Define Your Goal
+                    <button 
+                        onclick="toggleView('history')" 
+                        class="text-sm text-indigo-500 hover:text-indigo-700 font-medium p-1 rounded-md transition duration-150">
+                        View History &larr;
+                    </button>
+                </h2>
+                <textarea
+                    id="goalInput"
+                    class="w-full h-24 p-4 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-700"
+                    placeholder="Example: Launch a new e-commerce website in 6 weeks."
+                ></textarea>
+                <button
+                    id="planButton"
+                    onclick="generatePlan()"
+                    class="mt-4 w-full md:w-auto px-6 py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-150 ease-in-out shadow-lg transform hover:scale-[1.01] disabled:opacity-50"
+                >
+                    Generate Smart Plan
+                </button>
+            </div>
+
+            <!-- HISTORY VIEW -->
+            <div id="historyView" class="card bg-white p-6 rounded-xl mb-8 hidden">
+                 <h2 class="text-2xl font-semibold text-gray-800 mb-4 flex justify-between items-center">
+                    Plan History
+                    <button 
+                        onclick="toggleView('new')" 
+                        class="text-sm text-indigo-500 hover:text-indigo-700 font-medium p-1 rounded-md transition duration-150">
+                        New Plan &rarr;
+                    </button>
+                </h2>
+                <div id="historyList" class="space-y-2">
+                    <p id="noHistory" class="text-gray-500 text-center mt-4">No saved plans found. Start by generating one!</p>
+                    <!-- History items will be injected here -->
+                </div>
+            </div>
+
+            <!-- OUTPUT SECTION (Used for both new and historical plans) -->
+            <div id="planOutput" class="card bg-white p-6 rounded-xl hidden">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-6 border-b pb-2 flex justify-between items-center">
+                    Actionable Plan
+                    <div class="flex items-center space-x-4">
+                        <span id="goalSummary" class="text-sm font-medium text-indigo-500 truncate max-w-xs"></span>
+                        <button 
+                            onclick="toggleView('history')" 
+                            class="text-sm text-indigo-500 hover:text-indigo-700 font-medium p-1 rounded-md transition duration-150">
+                            Back to History &larr;
+                        </button>
+                    </div>
+                </h2>
+                <div id="taskList">
+                    <!-- Tasks will be injected here -->
+                </div>
+                <div class="mt-6 p-4 bg-yellow-50 border-l-4 border-yellow-500 text-yellow-800 rounded-lg">
+                    <p class="font-medium">Disclaimer:</p>
+                    <p class="text-sm">Timelines and dependencies are AI-generated estimates and should be reviewed and adjusted based on your specific context and resources.</p>
+                </div>
+            </div>
+            
+            <!-- Status message is now outside the main output card -->
+            <div id="statusMessage" class="text-center p-4 rounded-lg text-gray-600 hidden"></div>
+
+        </div>
+    </div>
+    
+    <footer class="max-w-4xl mx-auto mt-8 text-center">
+        <p class="text-sm text-blue-600 font-medium">
+            - Made by Ashutosh Khatuwala 22BCI0029
+        </p>
+    </footer>
+
+    <script>
+        // --- Gemini API Configuration ---
+        // 🚨 IMPORTANT: Replace the placeholder with your actual Gemini API Key 🚨
+        const API_KEY = "AIzaSyBSmP8QGNLPX8nfb0XoVK83dhMvxTd81EI"; 
+        const MODEL_NAME = "gemini-2.5-flash-preview-05-20";
+        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
+        const STORAGE_KEY = 'smartTaskPlans';
+
+        // JSON Schema to enforce structured output from the LLM
+        const RESPONSE_SCHEMA = {
+            type: "ARRAY",
+            items: {
+                type: "OBJECT",
+                properties: {
+                    "taskName": { "type": "STRING", "description": "A concise, descriptive name for the task." },
+                    "timelineDays": { "type": "NUMBER", "description": "The estimated duration of the task in days. Use 0.5 for a half day." },
+                    "dependencies": { "type": "ARRAY", "items": { "type": "STRING" }, "description": "Names of tasks that must be completed before this one, e.g., ['Task 1: Market Research', 'Task 2: Design']. List names exactly as they appear in this array." }
+                },
+                required: ["taskName", "timelineDays", "dependencies"]
+            }
+        };
+
+        // System instruction to guide the LLM's reasoning and ensure a realistic plan
+        const SYSTEM_PROMPT = `You are a world-class project manager and AI task breakdown expert.
+        Your job is to take a high-level goal and break it down into a comprehensive, sequential, and actionable list of tasks.
+        The output MUST strictly be a JSON array that adheres to the provided schema.
+        Reason logically about the required steps, estimate realistic timelines in days, and correctly identify dependencies between tasks within the plan.
+        The timeline should start from day 1. All tasks must eventually contribute to the final goal.
+        The timelineDays field must only contain numbers, including decimals (e.g., 2, 0.5).`;
+
+
+        // --- Local Storage Functions ---
+
+        /** Retrieves all stored plans from localStorage. */
+        function getStoredPlans() {
+            try {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                return stored ? JSON.parse(stored) : [];
+            } catch (e) {
+                console.error("Error retrieving data from localStorage:", e);
+                return [];
+            }
+        }
+
+        /** Saves a new plan to localStorage. */
+        function savePlanLocally(goal, tasks) {
+            const plans = getStoredPlans();
+            const newPlan = {
+                id: Date.now(), // Use timestamp as unique ID
+                goal: goal,
+                tasks: tasks,
+                timestamp: new Date().toLocaleString()
+            };
+            plans.unshift(newPlan); // Add to the beginning (newest first)
+            
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(plans));
+                console.log("Plan saved locally.");
+            } catch (e) {
+                console.error("Error saving data to localStorage. Storage quota may be exceeded.", e);
+                setStatusMessage('Failed to save history. Local storage is full.', false);
+            }
+        }
+
+        /**
+         * Deletes a plan from localStorage by its ID and reloads the history.
+         * @param {number} id - The unique ID (timestamp) of the plan to delete.
+         */
+        window.deletePlan = (id) => {
+            let plans = getStoredPlans();
+            const initialLength = plans.length;
+            
+            // Filter out the plan with the matching ID
+            plans = plans.filter(plan => plan.id !== id);
+            
+            if (plans.length < initialLength) {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(plans));
+                    // If the output screen was showing the deleted plan, hide it
+                    document.getElementById('planOutput').classList.add('hidden');
+                    console.log("Plan deleted successfully.");
+                } catch (e) {
+                    console.error("Error deleting plan:", e);
+                    setStatusMessage('Failed to delete plan from history.', false);
+                }
+            }
+            
+            // Reload the list in the history view
+            loadHistory();
+        }
+
+        // --- UI Functions ---
+
+        /** Toggles between the New Plan input view and the History view. */
+        function toggleView(view) {
+            const isHistory = view === 'history';
+            document.getElementById('newPlanView').classList.toggle('hidden', isHistory);
+            document.getElementById('historyView').classList.toggle('hidden', !isHistory);
+            document.getElementById('planOutput').classList.add('hidden'); // Hide output when switching views
+            document.getElementById('statusMessage').classList.add('hidden');
+
+            if (isHistory) {
+                loadHistory();
+            }
+        }
+
+        /** Loads and displays the plan history. */
+        function loadHistory() {
+            const plans = getStoredPlans();
+            const historyList = document.getElementById('historyList');
+            const noHistory = document.getElementById('noHistory');
+            
+            historyList.innerHTML = '';
+            
+            if (plans.length === 0) {
+                noHistory.classList.remove('hidden');
+                return;
+            }
+            noHistory.classList.add('hidden');
+            
+            plans.forEach(plan => {
+                // We use JSON.stringify and then JSON.parse to safely pass the object to the click handler
+                const tasksJsonString = JSON.stringify(plan.tasks);
+                const encodedGoal = encodeURIComponent(plan.goal);
+                
+                const item = document.createElement('div');
+                // Use flex layout to position buttons correctly
+                item.className = 'history-item p-3 border border-gray-200 rounded-lg flex justify-between items-center bg-white';
+                
+                // Construct the inner HTML
+                const planContentHTML = `
+                    <!-- Plan Details Area (Clickable to Load) -->
+                    <div 
+                        class="flex-1 cursor-pointer pr-4"
+                        onclick='loadHistoricalPlan(decodeURIComponent("${encodedGoal}"), ${tasksJsonString})'
+                    >
+                        <p class="font-medium text-gray-800 truncate">${plan.goal}</p>
+                        <p class="text-xs text-gray-500 mt-0.5">Created: ${plan.timestamp}</p>
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="flex items-center space-x-2">
+                        <!-- View Icon (Clickable to Load) -->
+                        <svg class="w-4 h-4 text-indigo-500 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"
+                             onclick='loadHistoricalPlan(decodeURIComponent("${encodedGoal}"), ${tasksJsonString})'>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                        </svg>
+
+                        <!-- Delete Button: Use event.stopPropagation() to prevent parent click event -->
+                        <button 
+                            class="delete-btn bg-red-500 text-white rounded hover:bg-red-600 transition"
+                            onclick="event.stopPropagation(); deletePlan(${plan.id});"
+                        >
+                            Delete
+                        </button>
+                    </div>
+                `;
+                item.innerHTML = planContentHTML;
+                historyList.appendChild(item);
+            });
+        }
+
+        /** Loads a historical plan into the main detail view. */
+        window.loadHistoricalPlan = (goal, tasks) => {
+            renderPlan(goal, tasks);
+            document.getElementById('newPlanView').classList.add('hidden'); // Hide new plan input
+            document.getElementById('historyView').classList.add('hidden'); // Hide history list
+            document.getElementById('planOutput').classList.remove('hidden'); // Show output
+        }
+
+        /**
+         * Converts a task object into its HTML representation.
+         */
+        function renderTask(task, index) {
+            const daysText = task.timelineDays > 0 ? `${task.timelineDays} day${task.timelineDays === 1 ? '' : 's'}` : 'N/A';
+            const dependencyList = task.dependencies && task.dependencies.length > 0
+                ? `<div class="text-xs text-gray-500 mt-1">Depends on: <span class="font-medium text-indigo-600">${task.dependencies.join(', ')}</span></div>`
+                : `<div class="text-xs text-gray-500 mt-1"><span class="font-medium text-green-600">No prerequisites</span></div>`;
+
+            return `
+                <div class="task-item border-indigo-400 bg-indigo-50 p-4 rounded-lg my-3 hover:bg-indigo-100">
+                    <div class="flex items-center justify-between">
+                        <span class="text-lg font-bold text-indigo-700">${index + 1}. ${task.taskName}</span>
+                        <span class="text-sm font-semibold text-gray-700 bg-indigo-200 px-3 py-1 rounded-full">${daysText}</span>
+                    </div>
+                    ${dependencyList}
+                </div>
+            `;
+        }
+
+        /**
+         * Displays a temporary status message to the user.
+         */
+        function setStatusMessage(message, isLoading = false) {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.innerHTML = isLoading 
+                ? `<div class="flex items-center justify-center space-x-2">
+                    <svg class="animate-spin h-5 w-5 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span class="text-indigo-600 font-medium">${message}</span>
+                </div>`
+                : `<span class="text-red-600 font-medium">${message}</span>`;
+            statusDiv.classList.remove('hidden');
+            document.getElementById('planOutput').classList.add('hidden');
+        }
+
+        /**
+         * Main function to call the Gemini API and generate the task plan.
+         */
+        window.generatePlan = async () => {
+            const goalInput = document.getElementById('goalInput');
+            const planButton = document.getElementById('planButton');
+            const goal = goalInput.value.trim();
+
+            if (!goal) {
+                setStatusMessage('Please enter a goal before generating a plan.', false);
+                return;
+            }
+
+            // Disable button and show loading status
+            planButton.disabled = true;
+            setStatusMessage(`Analyzing your goal: "${goal}"...`, true);
+
+            const userQuery = `Break down the following goal into a detailed, step-by-step project plan: "${goal}"`;
+
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: RESPONSE_SCHEMA
+                }
+            };
+
+            const maxRetries = 3;
+            let currentDelay = 1000; // 1 second
+            
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`API returned status ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    
+                    if (result.candidates && result.candidates.length > 0 && result.candidates[0].content && result.candidates[0].content.parts && result.candidates[0].content.parts.length > 0) {
+                        const jsonText = result.candidates[0].content.parts[0].text;
+                        const tasks = JSON.parse(jsonText);
+                        
+                        // 1. Render the plan
+                        renderPlan(goal, tasks);
+                        // 2. Save the plan to local storage
+                        savePlanLocally(goal, tasks);
+                        
+                        planButton.disabled = false;
+                        document.getElementById('statusMessage').classList.add('hidden');
+                        
+                        // After generating, switch back to the main input view
+                        document.getElementById('newPlanView').classList.remove('hidden');
+                        document.getElementById('historyView').classList.add('hidden');
+
+                        return; // Success, exit loop
+                    } else {
+                         throw new Error("Invalid response structure from the model.");
+                    }
+
+                } catch (error) {
+                    console.error("Attempt failed:", error);
+                    if (i < maxRetries - 1) {
+                        setStatusMessage(`Generation failed. Retrying in ${currentDelay / 1000}s...`, true);
+                        await new Promise(resolve => setTimeout(resolve, currentDelay));
+                        currentDelay *= 2; // Exponential backoff
+                    } else {
+                        setStatusMessage(`Failed to generate plan after ${maxRetries} attempts. Please check the console for details or try a different goal.`, false);
+                        planButton.disabled = false;
+                    }
+                }
+            }
+        }
+
+        /**
+         * Renders the generated plan to the DOM.
+         */
+        function renderPlan(goal, tasks) {
+            const taskListDiv = document.getElementById('taskList');
+            const planOutputDiv = document.getElementById('planOutput');
+            const goalSummarySpan = document.getElementById('goalSummary');
+            
+            // Show the plan output section
+            planOutputDiv.classList.remove('hidden');
+            document.getElementById('statusMessage').classList.add('hidden');
+            
+            // Set the summarized goal
+            goalSummarySpan.textContent = goal.length > 40 ? goal.substring(0, 37) + '...' : goal;
+
+            // Generate HTML for all tasks
+            const tasksHtml = tasks.map(renderTask).join('');
+            taskListDiv.innerHTML = tasksHtml;
+        }
+        
+        // On page load, try to load history automatically
+        window.addEventListener('load', () => {
+             // We start on the new plan view. The history button will populate the history when clicked.
+             toggleView('new');
+        });
+    </script>
+</body>
+</html>
